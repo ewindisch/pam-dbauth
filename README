@@ -1,0 +1,42 @@
+Filename: pam_dbauth.py
+Description: Performs salted-hash authentication from a database
+Author: Eric Windisch <eric@windisch.us>
+Copyright: 2010, Eric Windisch <eric@grokthis.net>, VPS Village
+License: EPL v1.0
+
+What does it do?
+------------------------------------------------------------------
+Supports salted-hash authentication via PostgreSQL and MySQL,
+ could be easily modified for SQLite3 and other DB support...
+
+Installation & Usage:
+------------------------------------------------------------------
+Add to PAM configuration with:
+auth required pam_python.so pam_dbauth.py
+
+
+Requires configuration file, /etc/security/pam_dbauth.conf,
+Example:
+
+[database]
+host=localhost
+user=myuser
+password=mypass
+db=myuser_db
+engine=mysqldb
+; engine=psycopg2
+
+[query]
+select_statement=select password from users where username=%s
+
+; ----------------------------------------------------------------
+; Support forcing or defaulting hashtypes,
+; ONLY effective if stored password does not start with {hashtype}.
+; ----------------------------------------------------------------
+; hashtype_force=sha1
+;
+; ----------------------------------------------------------------
+; Default type to be used if all auto-detection fails (unlikely)
+; ----------------------------------------------------------------
+; hashtype_default=md5
+;
