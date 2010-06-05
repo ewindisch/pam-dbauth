@@ -1,7 +1,7 @@
 # vim: noai:ts=2:sw=2:set expandtab:
 #
-# pam_mysql.py
-# Performs salted-hash authentication from MySQL
+# pam_dbauth.py
+# Performs salted-hash authentication from a database
 #
 """
   Author: Eric Windisch <eric@windisch.us>
@@ -12,10 +12,10 @@
 
 """
 Add to PAM configuration with:
-  auth    required    pam_python.so pam_mysql.py
+  auth    required    pam_python.so pam_dbauth.py
 
 
-Requires configuration file, /etc/security/pam_mysql.conf,
+Requires configuration file, /etc/security/pam_dbauth.conf,
 Example:
 
   [database]
@@ -128,7 +128,7 @@ def pam_sm_authenticate(pamh, flags, argv):
     hashedrep = base64.b64encode(hl.digest())
 
     if hl.digest() == pass_base:
-      syslog.syslog ("pam-mysql.py hashes match")
+      syslog.syslog ("pam-dbauth.py hashes match")
       return pamh.PAM_SUCCESS
     else:
        pamh.PAM_AUTH_ERR
