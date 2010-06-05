@@ -1,7 +1,7 @@
 # vim: noai:ts=2:sw=2:set expandtab:
 #
 # pam_mysql.py
-# Performs SSHA1 authentication from MySQL
+# Performs salted-hash authentication from MySQL
 #
 """
   Author: Eric Windisch <eric@windisch.us>
@@ -26,6 +26,18 @@ Example:
 
   [query]
   select_statement=select password from users where username=%s
+
+  ; ---------------------------------------------------------------- 
+  ;  Support forcing or defaulting hashtypes,
+  ;  ONLY effective if stored password does not start with {hashtype}.
+  ; ---------------------------------------------------------------- 
+  ; hashtype_force=sha1
+  ;
+  ; ----------------------------------------------------------------
+  ;  Default type to be used if all auto-detection fails (unlikely)
+  ; ----------------------------------------------------------------
+  ; hashtype_default=md5
+  ;
 """
 
 import MySQLdb
@@ -60,24 +72,47 @@ def pam_sm_authenticate(pamh, flags, argv):
       )
     cursor=db.cursor()
     cursor.execute(config.get('query','select_statement'),(user))
-    pass_stored=string.lstrip(cursor.fetchone()[0],"{ssha1}")
+    pass_raw=cursor.fetchone()[0]
+    pass_stored=pass_raw
+
+    # We search for a {} section containing the hashtype
+    htindex=string.find(pass_raw,"}")
+    if htindex > 0:
+      # password contained a hashtype
+      hashtype=pass_raw[1:htindex]
+      # Remove the hashtype indicator
+      pass_stored=pass_raw[htindex:]
+    elif config.has_option('query','hashtype_force'):
+      # if a hashtype is forced on us
+      hashtype=config.get('query','hashtype_force')
+    elif len(pass_raw) == 16:
+      # assume 16-byte length is md5
+      hashtype='md5'
+    elif len(pass_raw) == 20:
+      # assume 20-byte length is sha-1
+      hashtype='ssha1'
+    elif config.has_option('query','hashtype_default'):
+      # attempt to fall back...
+      hashtype=config.get('query','hashtype_default')
+    else:
+      return pamh.PAM_SERVICE_ERR
+
     pass_decoded=base64.b64decode(pass_stored)
-    pass_base=pass_decoded[:20]
-    pass_salt=pass_decoded[20:]
 
-    #  syslog.syslog ("pam-mysql.py stored password: %s" % (pass_stored))
-    #  syslog.syslog ("pam-mysql.py plain-text response: %s" % (resp.resp))
-    #
-    #  syslog.syslog ("pam-mysql.py base: %s" % (len(pass_base)))
-    #  syslog.syslog ("pam-mysql.py salt: %s" % (len(pass_salt)))
+    # Set the hashlib
+    hl={
+      'ssha1': hashlib.sha1(),
+      'sha1': hashlib.sha1(),
+      'md5':  hashlib.md5()
+    }[hashtype]
 
-    hl=hashlib.sha1()
+    pass_base=pass_decoded[:hl.digest_size]
+    pass_salt=pass_decoded[hl.digest_size:]
+
     hl.update(resp.resp)
     hl.update(pass_salt)
 
     hashedrep = base64.b64encode(hl.digest())
-    #syslog.syslog ("pam-mysql.py hashed response: %s" % (hashedrep))
-    #syslog.syslog ("pam-mysql.py sizes: %s %s" % (len(hl.digest()), len(pass_decoded)))
 
     if hl.digest() == pass_base:
       syslog.syslog ("pam-mysql.py hashes match")
