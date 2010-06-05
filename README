@@ -6,8 +6,8 @@ License: EPL v1.0
 
 What does it do?
 ------------------------------------------------------------------
-Supports salted-hash authentication via PostgreSQL and MySQL,
- could be easily modified for SQLite3 and other DB support...
+Supports salted-hash authentication via PostgreSQL, MySQL, and
+Redis! SQLite3 and other databases may be easily added...
 
 Installation & Usage:
 ------------------------------------------------------------------
@@ -18,25 +18,31 @@ auth required pam_python.so pam_dbauth.py
 Requires configuration file, /etc/security/pam_dbauth.conf,
 Example:
 
-[database]
-host=localhost
-user=myuser
-password=mypass
-db=myuser_db
-engine=mysqldb
-; engine=psycopg2
+  [database]
+  host=localhost
+  user=myuser
+  password=mypass
+  db=myuser_db
+  port=XXXX
+  engine=mysqldb
+  ; engine=psycopg2
+  ; engine=redis
 
-[query]
-select_statement=select password from users where username=%s
+  [query]
+  ; SQL Example
+  select_statement=select password from users where username=%s
 
-; ----------------------------------------------------------------
-; Support forcing or defaulting hashtypes,
-; ONLY effective if stored password does not start with {hashtype}.
-; ----------------------------------------------------------------
-; hashtype_force=sha1
-;
-; ----------------------------------------------------------------
-; Default type to be used if all auto-detection fails (unlikely)
-; ----------------------------------------------------------------
-; hashtype_default=md5
-;
+  ; Redis example:
+  ; select_statement=users:%s:password
+
+  ; ---------------------------------------------------------------- 
+  ;  Support forcing or defaulting hashtypes,
+  ;  ONLY effective if stored password does not start with {hashtype}.
+  ; ---------------------------------------------------------------- 
+  ; hashtype_force=sha1
+  ;
+  ; ----------------------------------------------------------------
+  ;  Default type to be used if all auto-detection fails (unlikely)
+  ; ----------------------------------------------------------------
+  ; hashtype_default=md5
+

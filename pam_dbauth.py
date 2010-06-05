@@ -23,11 +23,17 @@ Example:
   user=myuser
   password=mypass
   db=myuser_db
+  port=XXXX
   engine=mysqldb
   ; engine=psycopg2
+  ; engine=redis
 
   [query]
+  ; SQL Example
   select_statement=select password from users where username=%s
+
+  ; Redis example:
+  ; select_statement=users:%s:password
 
   ; ---------------------------------------------------------------- 
   ;  Support forcing or defaulting hashtypes,
@@ -60,6 +66,9 @@ if dbengine == 'mysqldb':
 elif dbengine == 'pyscopg2':
   import psycopg2
   dbengineClass=psycopg2
+elif dbengine == 'redis':
+  import redis
+  dbengineClass=redis
 else:
   syslog.syslog ("pam_dbauth.py - Unknown or unspecified database engine")
   sys.exit(1)
@@ -77,15 +86,57 @@ def pam_sm_authenticate(pamh, flags, argv):
     return pamh.PAM_USER_UNKNOWN
 
   try:
-    db=dbengineClass.connect(
-      host=config.get('database', 'host'),
-      user=config.get('database', 'user'),
-      passwd=config.get('database','password'),
-      db=config.get('database','db')
-      )
-    cursor=db.cursor()
-    cursor.execute(config.get('query','select_statement'),(user))
-    pass_raw=cursor.fetchone()[0]
+    def safeConfigGet(sect,key):
+      if config.has_option(sect,key):
+        return config.get(sect,key)
+      else:
+        None
+
+    connargs={
+      # Each engine has its own connection string type.
+      # perhaps I might abstract this further into a class,
+      # but for now, this module is light enough, that I 
+      # simply won't bother.
+      'mysqldb': { 
+        'host': safeConfigGet('database','host'),
+        'user': safeConfigGet('database','user'),
+        'passwd': safeConfigGet('database','password'),
+        'port': safeConfigGet('database','port'),
+        'db': safeConfigGet('database','db')
+      },
+      'pyscopg2': {
+        'host': safeConfigGet('database','host'),
+        'user': safeConfigGet('database','user'),
+        'password': safeConfigGet('database','password'),
+        'port': safeConfigGet('database','port'),
+        'db': safeConfigGet('database','db')
+      },
+      'redis': {
+        'host': safeConfigGet('database','host'),
+        'password': safeConfigGet('database','password'),
+        'port': safeConfigGet('database','port'),
+        'db': safeConfigGet('database','db')
+      } 
+    }[dbengine]
+
+    # Filter out None vars.
+    for k in connargs.keys():
+      if connargs[k] is None:
+        del connargs[k]
+
+    # Connect to database... finally!
+    db=dbengineClass.connect( **connargs )
+
+    # Query the DB.
+    # All but Redis (so-far) are SQL-based...
+    if dbengine != 'redis':
+      cursor=db.cursor()
+      cursor.execute(config.get('query','select_statement'),(user))
+      pass_raw=cursor.fetchone()[0]
+    else:
+      pass_raw=db.get(config.get('query','select_statement' % (user)))
+
+    # Initalize pass_stored to pass_raw... we might change it
     pass_stored=pass_raw
 
     # We search for a {} section containing the hashtype
@@ -133,7 +184,8 @@ def pam_sm_authenticate(pamh, flags, argv):
     else:
        pamh.PAM_AUTH_ERR
   except:
-     return pamh.PAM_SERVICE_ERR
+    syslog.syslog ("pam-dbauth.py exception triggered")
+    return pamh.PAM_SERVICE_ERR
 
   return pamh.PAM_SERVICE_ERR
 
