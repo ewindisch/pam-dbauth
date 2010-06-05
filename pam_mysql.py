@@ -40,13 +40,27 @@ Example:
   ;
 """
 
-import MySQLdb
 import syslog
 import hashlib
 import base64
 import string
+import sys
 
 import ConfigParser
+
+config = ConfigParser.ConfigParser()
+config.read('/etc/security/pam_dbauth.conf')
+
+dbengine=config.get('database','engine')
+if dbengine == 'mysqldb':
+  import MySQLdb
+  dbengineClass=MySQLdb
+elif dbengine == 'pyscopg2':
+  import psycopg2
+  dbengineClass=psycopg2
+else:
+  syslog.syslog ("pam_dbauth.py - Unknown or unspecified database engine")
+  sys.exit(1)
 
 def pam_sm_authenticate(pamh, flags, argv):
   resp=pamh.conversation(
@@ -61,10 +75,7 @@ def pam_sm_authenticate(pamh, flags, argv):
     return pamh.PAM_USER_UNKNOWN
 
   try:
-    config = ConfigParser.ConfigParser()
-    config.read('/etc/security/pam_mysql.conf')
-
-    db=MySQLdb.connect(
+    db=dbengineClass.connect(
       host=config.get('database', 'host'),
       user=config.get('database', 'user'),
       passwd=config.get('database','password'),
