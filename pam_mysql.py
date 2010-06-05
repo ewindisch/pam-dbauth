@@ -23,6 +23,8 @@ Example:
   user=myuser
   password=mypass
   db=myuser_db
+  engine=mysqldb
+  ; engine=psycopg2
 
   [query]
   select_statement=select password from users where username=%s
