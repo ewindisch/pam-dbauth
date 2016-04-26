@@ -7,6 +7,12 @@
   Author: Eric Windisch <eric@windisch.us>
   Copyright: 2010, Eric Windisch <eric@grokthis.net>, VPS Village
   License: EPL v1.0
+  
+  Contributor: Eric Arnol-Martin <earnolmartin@gmail.com>
+  Added MySQL Password() Function Support
+	-  Requires passlib for additional hash support (sudo pip install passlib)
+	-  Fixed port integer bug MySQL
+	-  Added logic to handle an already encrypted password being sent in
 """
 
 
@@ -53,11 +59,12 @@ import hashlib
 import base64
 import string
 import sys
-
+import traceback
 import ConfigParser
+from passlib.hash import mysql41
 
 config = ConfigParser.ConfigParser()
-config.read('/etc/security/pam_dbauth.conf')
+config.read('/etc/security/pam_dbauth_vsftpd.conf')
 
 dbengine=config.get('database','engine')
 if dbengine == 'mysqldb':
@@ -101,7 +108,7 @@ def pam_sm_authenticate(pamh, flags, argv):
         'host': safeConfigGet('database','host'),
         'user': safeConfigGet('database','user'),
         'passwd': safeConfigGet('database','password'),
-        'port': safeConfigGet('database','port'),
+        'port': int(safeConfigGet('database','port')),
         'db': safeConfigGet('database','db')
       },
       'pyscopg2': {
@@ -118,7 +125,7 @@ def pam_sm_authenticate(pamh, flags, argv):
         'db': safeConfigGet('database','db')
       } 
     }[dbengine]
-
+	
     # Filter out None vars.
     for k in connargs.keys():
       if connargs[k] is None:
@@ -126,11 +133,13 @@ def pam_sm_authenticate(pamh, flags, argv):
 
     # Connect to database... finally!
     db=dbengineClass.connect( **connargs )
-
+    
     # Query the DB.
     # All but Redis (so-far) are SQL-based...
     if dbengine != 'redis':
       cursor=db.cursor()
+      query=str((config.get('query','select_statement'),(user)))
+      #syslog.syslog ("query is " + query)
       cursor.execute(config.get('query','select_statement'),(user))
       pass_raw=cursor.fetchone()[0]
     else:
@@ -158,33 +167,51 @@ def pam_sm_authenticate(pamh, flags, argv):
     elif config.has_option('query','hashtype_default'):
       # attempt to fall back...
       hashtype=config.get('query','hashtype_default')
-    else:
-      return pamh.PAM_SERVICE_ERR
-
-    pass_decoded=base64.b64decode(pass_stored)
-
-    # Set the hashlib
-    hl={
-      'ssha1': hashlib.sha1(),
-      'sha1': hashlib.sha1(),
-      'md5':  hashlib.md5()
-    }[hashtype]
-
-    pass_base=pass_decoded[:hl.digest_size]
-    pass_salt=pass_decoded[hl.digest_size:]
-
-    hl.update(resp.resp)
-    hl.update(pass_salt)
-
-    hashedrep = base64.b64encode(hl.digest())
-
-    if hl.digest() == pass_base:
-      syslog.syslog ("pam-dbauth.py hashes match")
+    elif len(pass_raw) == 41:
+      # MySQL Password() function hash
+      hashtype='mysql_password_function'
+    elif pass_stored == resp.resp: # Perhaps an already encrypted password is being sent in like in the case of SMTP sasl auth...  
       return pamh.PAM_SUCCESS
     else:
-       pamh.PAM_AUTH_ERR
-  except:
-    syslog.syslog ("pam-dbauth.py exception triggered")
+      #syslog.syslog ("Unable to determine hash type... the length is " + str(len(pass_raw)))		
+      return pamh.PAM_SERVICE_ERR
+
+    if hashtype != 'mysql_password_function':
+
+        pass_decoded=base64.b64decode(pass_stored)
+
+        # Set the hashlib
+        hl={
+            'ssha1': hashlib.sha1(),
+            'sha1': hashlib.sha1(),
+            'md5':  hashlib.md5(),
+        }[hashtype]
+
+        pass_base=pass_decoded[:hl.digest_size]
+        pass_salt=pass_decoded[hl.digest_size:]
+
+        hl.update(resp.resp)
+        hl.update(pass_salt)
+
+        hashedrep = base64.b64encode(hl.digest())
+
+        if hl.digest() == pass_base:
+          #syslog.syslog ("pam-dbauth.py hashes match")
+          return pamh.PAM_SUCCESS
+        else:
+           #syslog.syslog ("hashes do not match: " + hl.digest() + " not equal to " + pass_base)
+           pamh.PAM_AUTH_ERR
+    else:	
+        if pass_stored == mysql41.encrypt(resp.resp):
+          #syslog.syslog ("pam-dbauth.py hashes match")
+          return pamh.PAM_SUCCESS	
+        else:
+           #syslog.syslog ("hashes do not match: " + hl.digest() + " not equal to " + pass_base)
+           pamh.PAM_AUTH_ERR		
+		  
+  except Exception,e:
+    #traceback.print_exc()
+    #syslog.syslog ("pam-dbauth.py exception triggered " + str(e))
     return pamh.PAM_SERVICE_ERR
 
   return pamh.PAM_SERVICE_ERR
