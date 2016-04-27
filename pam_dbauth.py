@@ -64,7 +64,7 @@ import ConfigParser
 from passlib.hash import mysql41
 
 config = ConfigParser.ConfigParser()
-config.read('/etc/security/pam_dbauth_vsftpd.conf')
+config.read('/etc/security/pam_dbauth.conf')
 
 dbengine=config.get('database','engine')
 if dbengine == 'mysqldb':
@@ -138,9 +138,9 @@ def pam_sm_authenticate(pamh, flags, argv):
     # All but Redis (so-far) are SQL-based...
     if dbengine != 'redis':
       cursor=db.cursor()
-      query=str((config.get('query','select_statement'),(user)))
+      query=str(config.get('query','select_statement')).format(user)
       #syslog.syslog ("query is " + query)
-      cursor.execute(config.get('query','select_statement'),(user))
+      cursor.execute(query)
       pass_raw=cursor.fetchone()[0]
     else:
       pass_raw=db.get(config.get('query','select_statement' % (user)))
@@ -180,7 +180,7 @@ def pam_sm_authenticate(pamh, flags, argv):
 
         pass_decoded=base64.b64decode(pass_stored)
 
-        # Set the hashlib
+        #Set the hashlib
         hl={
             'ssha1': hashlib.sha1(),
             'sha1': hashlib.sha1(),
